@@ -23,6 +23,12 @@ class DataLoader:
     def load_mortalidad(self):
         file = self.base_dir / "data" / "Anexo1.Muerte2019_CE_15-03-23.csv"
         df = pd.read_csv(file, encoding="utf-8")
+        print("\n=== CARGANDO ARCHIVO DE MORTALIDAD ===")
+        print(f"Ruta: {file}")
+        print("Columnas detectadas:", list(df.columns))
+        print("Primeras filas:")
+        print(df.head(5))
+        print("======================================\n")
         df.columns = [c.strip().lower() for c in df.columns]  # ← normaliza nombres
 
         # Normaliza nombres esperados
@@ -50,6 +56,10 @@ class DataLoader:
     def load_codigos(self):
         file = self.base_dir / "data" / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
         df = pd.read_csv(file, encoding="utf-8")
+        print("\n=== CARGANDO CÓDIGOS DE MUERTE ===")
+        print(df.head(5))
+        print("===================================\n")
+        return df
         df.columns = [c.strip().lower() for c in df.columns]
         rename_map = {"codigo": "codigo_causa", "nombre": "nombre_causa"}
         df.rename(columns=rename_map, inplace=True)
@@ -59,6 +69,10 @@ class DataLoader:
     def load_divipola(self):
         file = self.base_dir / "data" / "Divipola_CE_.csv"
         df = pd.read_csv(file, encoding="utf-8")
+        print("\n=== CARGANDO DIVIPOLA ===")
+        print(df.head(5))
+        print("===================================\n")
+        return df
         df.columns = [c.strip().lower() for c in df.columns]
         rename_map = {
             "cod_departamento": "cod_departamento",
