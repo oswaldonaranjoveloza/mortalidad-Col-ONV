@@ -1,121 +1,108 @@
-from dash import Output, Input
+# src/callbacks.py
+from dash import Input, Output, callback
+import plotly.express as px
 import plotly.graph_objects as go
-from plotly.graph_objects import Figure
-
-def empty_fig(title: str, msg: str) -> Figure:
-    fig = Figure()
-    fig.add_annotation(text=msg, x=0.5, y=0.5, showarrow=False, font=dict(size=16))
-    fig.update_layout(title=title, xaxis_visible=False, yaxis_visible=False, template="plotly_white")
-    return fig
-
-def tpl(theme): 
-    return "plotly_white" if theme == "light" else "plotly_dark"
+import pandas as pd
 
 
 def register_callbacks(app, svc):
+    """
+    Registra todos los callbacks del dashboard.
+    svc: instancia de MortalityService (ver app.py)
+    """
 
-    # ---------- Tema ----------
-    @app.callback(Output("theme-store", "data"),
-                  Input("theme-toggle", "value"))
-    def toggle_theme(values):
-        return "light" if "light" in (values or []) else "dark"
+    @app.callback(
+        Output("fig-main", "figure"),
+        Input("ddl-anio", "value"),
+        Input("ddl-sexo", "value"),
+        Input("tabs", "value"),
+    )
+    def actualizar_graficos(anio, sexo, tab):
+        if not anio:
+            return go.Figure()
 
+        # Tab 1: Muertes por departamento (Mapa o barras)
+        if tab == "tab-mapa":
+            df = svc.muertes_por_depto(anio, sexo)
+            if df.empty:
+                fig = go.Figure()
+                fig.update_layout(title="Sin datos para el año seleccionado")
+                return fig
 
-    # ---------- Mapa geográfico ----------
-    @app.callback(Output("fig-mapa", "figure"),
-                  Input("flt-year", "value"),
-                  Input("flt-sexo", "value"),
-                  Input("theme-store", "data"))
-    def mapa(year, sexo, theme):
-        df = svc.muertes_por_depto(year, sexo)
-        if df.empty:
-            return empty_fig("Muertes por departamento", "Sin datos disponibles")
-        color = "#4cc9f0" if theme == "dark" else "#1f6feb"
-        fig = go.Figure(go.Bar(x=df["nom_dpto"], y=df["muertes"], marker_color=color))
-        fig.update_layout(title="Total de muertes por departamento",
-                          xaxis_title="Departamento", yaxis_title="Muertes",
-                          template=tpl(theme))
-        return fig
+            # Si tenemos coordenadas, usar mapa choropleth; si no, barras horizontales
+            if "nom_dpto" in df.columns:
+                fig = px.bar(
+                    df,
+                    x="muertes",
+                    y="nom_dpto",
+                    orientation="h",
+                    title=f"Muertes por Departamento ({anio}, {sexo})",
+                )
+                fig.update_layout(
+                    yaxis_title="Departamento",
+                    xaxis_title="Número de muertes",
+                    margin=dict(l=80, r=30, t=80, b=40),
+                    height=600,
+                )
+                fig.update_traces(marker_color="#007BFF")
+                return fig
 
+        # Tab 2: Tendencia mensual
+        elif tab == "tab-tendencia":
+            df = svc.tendencia_mensual(anio, sexo)
+            if df.empty:
+                fig = go.Figure()
+                fig.update_layout(title="No hay datos mensuales disponibles")
+                return fig
 
-    # ---------- Tendencia mensual ----------
-    @app.callback(Output("fig-tendencia", "figure"),
-                  Input("flt-year", "value"),
-                  Input("flt-sexo", "value"),
-                  Input("theme-store", "data"))
-    def tendencia(year, sexo, theme):
-        df = svc.muertes_por_mes(year, sexo)
-        if df.empty:
-            return empty_fig("Tendencia mensual", "Sin datos disponibles")
-        fig = go.Figure(go.Scatter(x=df["mes"], y=df["muertes"], mode="lines+markers",
-                                   line=dict(color="#1f77b4", width=2)))
-        fig.update_layout(title="Tendencia mensual de muertes",
-                          xaxis_title="Mes", yaxis_title="Muertes",
-                          template=tpl(theme))
-        return fig
+            df["mes_nombre"] = df["mes"].map({
+                1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr", 5: "May", 6: "Jun",
+                7: "Jul", 8: "Ago", 9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
+            })
 
+            fig = px.line(
+                df,
+                x="mes_nombre",
+                y="muertes",
+                markers=True,
+                title=f"Tendencia mensual de muertes ({anio}, {sexo})",
+            )
+            fig.update_layout(
+                xaxis_title="Mes",
+                yaxis_title="Número de muertes",
+                height=500,
+                margin=dict(l=40, r=30, t=80, b=40),
+            )
+            return fig
 
-    # ---------- Causas principales ----------
-    @app.callback(Output("fig-causas", "figure"),
-                  Input("flt-year", "value"),
-                  Input("flt-sexo", "value"),
-                  Input("theme-store", "data"))
-    def causas(year, sexo, theme):
-        df = svc.causas_principales(year, sexo)
-        if df.empty:
-            return empty_fig("Causas principales", "Sin datos disponibles")
-        fig = go.Figure(go.Bar(x=df["nombre_causa"], y=df["muertes"],
-                               marker_color="#9467bd"))
-        fig.update_layout(title="Principales causas de muerte",
-                          xaxis_title="Causa", yaxis_title="Muertes",
-                          template=tpl(theme))
-        return fig
+        # Tab 3: Causas principales
+        elif tab == "tab-causas":
+            df = svc.causas_principales(anio, sexo, top=10)
+            if df.empty:
+                fig = go.Figure()
+                fig.update_layout(title="Sin datos de causas disponibles")
+                return fig
 
+            df["etiqueta"] = df.apply(
+                lambda r: f"{r['nombre_causa']}" if pd.notna(r.get("nombre_causa")) else r["codigo_causa"],
+                axis=1,
+            )
 
-    # ---------- Ciudades violentas y pacíficas ----------
-    @app.callback(Output("fig-top-violentas", "figure"),
-                  Output("fig-bottom-pacificas", "figure"),
-                  Input("flt-year", "value"),
-                  Input("flt-sexo", "value"),
-                  Input("theme-store", "data"))
-    def ciudades(year, sexo, theme):
-        top, bottom = svc.top_ciudades(year, sexo)
-        if top.empty:
-            return empty_fig("Ciudades con más muertes", "Sin datos"), empty_fig("Ciudades con menos muertes", "Sin datos")
+            fig = px.bar(
+                df,
+                x="muertes",
+                y="etiqueta",
+                orientation="h",
+                title=f"Principales causas de muerte ({anio}, {sexo})",
+            )
+            fig.update_layout(
+                xaxis_title="Número de muertes",
+                yaxis_title="Causa",
+                height=600,
+                margin=dict(l=200, r=30, t=80, b=40),
+            )
+            fig.update_traces(marker_color="#FF6B6B")
+            return fig
 
-        f1 = go.Figure(go.Bar(x=top["nom_mpio"], y=top["muertes"], marker_color="#d62728"))
-        f1.update_layout(title="Ciudades con más muertes",
-                         xaxis_title="Ciudad", yaxis_title="Muertes",
-                         template=tpl(theme))
-
-        f2 = go.Figure(go.Bar(x=bottom["nom_mpio"], y=bottom["muertes"], marker_color="#2ca02c"))
-        f2.update_layout(title="Ciudades con menos muertes",
-                         xaxis_title="Ciudad", yaxis_title="Muertes",
-                         template=tpl(theme))
-        return f1, f2
-
-
-    # ---------- Distribución por sexo y edad ----------
-    @app.callback(Output("fig-sexo-depto", "figure"),
-                  Output("fig-histo-edad", "figure"),
-                  Input("flt-year", "value"),
-                  Input("flt-sexo", "value"),
-                  Input("theme-store", "data"))
-    def sexo_edad(year, sexo, theme):
-        df1 = svc.sexo_por_depto(year)
-        df2 = svc.histo_edades(year, sexo)
-
-        f1 = go.Figure()
-        for s in df1["sexo_std"].unique():
-            sub = df1[df1["sexo_std"] == s]
-            f1.add_trace(go.Bar(x=sub["nom_dpto"], y=sub["muertes"], name=s))
-        f1.update_layout(title="Muertes por sexo y departamento",
-                         barmode="group",
-                         xaxis_title="Departamento", yaxis_title="Muertes",
-                         template=tpl(theme))
-
-        f2 = go.Figure(go.Bar(x=df2["grupo_edad1"], y=df2["muertes"], marker_color="#17becf"))
-        f2.update_layout(title="Distribución por grupos de edad",
-                         xaxis_title="Grupo de edad", yaxis_title="Muertes",
-                         template=tpl(theme))
-        return f1, f2
+        # fallback
+        return go.Figure()
