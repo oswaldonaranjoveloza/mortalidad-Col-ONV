@@ -4,11 +4,13 @@ from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional, List
+import dash
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, dash_table
 from src.callbacks import register_callbacks
+from src.components.filters import filters_bar
 
 # ========================== UTILIDADES ==========================
 
