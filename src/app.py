@@ -32,70 +32,83 @@ def _find_col(columns: List[str], must_include: List[str]) -> Optional[str]:
 class DataLoader:
     base_dir: Path
 
-    @lru_cache
     def load_divipola(self) -> pd.DataFrame:
-        path = self.base_dir / "Divipola_CE_.csv"
-        if not path.exists():
-            raise FileNotFoundError(f"No se encontró: {path}")
-        df = pd.read_csv(path, encoding="latin1")
-        df = _to_lower(df)
-        rename = {
-            "cod_departamento": "cod_dpto",
-            "departamento": "nom_dpto",
-            "cod_municipio": "cod_mpio",
-            "municipio": "nom_mpio"
-        }
-        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
-        df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
-        df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
-        keep = [c for c in ["cod_dpto_int", "nom_dpto", "cod_mpio_int", "nom_mpio"] if c in df.columns]
-        return df[keep].drop_duplicates()
+        return _cached_load_divipola(self.base_dir)
 
-    @lru_cache
     def load_causas(self) -> Optional[pd.DataFrame]:
-        path = self.base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
-        if not path.exists():
-            return None
-        df = pd.read_csv(path, encoding="latin1")
-        df = _to_lower(df)
-        codigo_causa = _find_col(df.columns, ["cie-10"]) or _find_col(df.columns, ["codigo"]) or _find_col(df.columns, ["código"])
-        nombre_causa = _find_col(df.columns, ["descripcion"]) or _find_col(df.columns, ["descripción"])
-        if not codigo_causa or not nombre_causa:
-            return None
-        out = df[[codigo_causa, nombre_causa]].dropna().copy()
-        out = out.rename(columns={codigo_causa: "codigo_causa", nombre_causa: "nombre_causa"})
-        out["codigo_causa"] = out["codigo_causa"].astype(str).str.upper().str.strip()
-        out["nombre_causa"] = out["nombre_causa"].astype(str).str.strip()
-        return out.drop_duplicates()
+        return _cached_load_causas(self.base_dir)
 
-    @lru_cache
     def load_mortalidad(self) -> pd.DataFrame:
-        path = self.base_dir / "Anexo1.Muerte2019_CE_15-03-23.csv"
-        if not path.exists():
-            raise FileNotFoundError(f"No se encontró: {path}")
-        df = pd.read_csv(path, encoding="latin1", low_memory=False)
-        df = _to_lower(df)
-        rename = {
-            "cod_departamento": "cod_dpto",
-            "cod_municipio": "cod_mpio",
-            "cod_muerte": "codigo_causa",
-            "año": "anio",
-            "mes": "mes",
-            "sexo": "sexo",
-            "grupo_edad1": "grupo_edad1"
-        }
-        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
-        df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
-        df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
-        df["sexo_std"] = (
-            df["sexo"].astype(str)
-            .str.strip()
-            .str.upper()
-            .map({"1": "Masculino", "2": "Femenino", "M": "Masculino", "F": "Femenino"})
-            .fillna("Sin dato")
-        )
-        return df
+        return _cached_load_mortalidad(self.base_dir)
 
+
+# === Funciones caché seguras (hashable por Path) ===
+
+@lru_cache(maxsize=3)
+def _cached_load_divipola(base_dir: Path) -> pd.DataFrame:
+    path = base_dir / "Divipola_CE_.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"No se encontró: {path}")
+    df = pd.read_csv(path, encoding="latin1")
+    df = _to_lower(df)
+    rename = {
+        "cod_departamento": "cod_dpto",
+        "departamento": "nom_dpto",
+        "cod_municipio": "cod_mpio",
+        "municipio": "nom_mpio"
+    }
+    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
+    df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
+    keep = [c for c in ["cod_dpto_int", "nom_dpto", "cod_mpio_int", "nom_mpio"] if c in df.columns]
+    return df[keep].drop_duplicates()
+
+
+@lru_cache(maxsize=3)
+def _cached_load_causas(base_dir: Path) -> Optional[pd.DataFrame]:
+    path = base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
+    if not path.exists():
+        return None
+    df = pd.read_csv(path, encoding="latin1")
+    df = _to_lower(df)
+    codigo_causa = _find_col(df.columns, ["cie-10"]) or _find_col(df.columns, ["codigo"]) or _find_col(df.columns, ["código"])
+    nombre_causa = _find_col(df.columns, ["descripcion"]) or _find_col(df.columns, ["descripción"])
+    if not codigo_causa or not nombre_causa:
+        return None
+    out = df[[codigo_causa, nombre_causa]].dropna().copy()
+    out = out.rename(columns={codigo_causa: "codigo_causa", nombre_causa: "nombre_causa"})
+    out["codigo_causa"] = out["codigo_causa"].astype(str).str.upper().str.strip()
+    out["nombre_causa"] = out["nombre_causa"].astype(str).str.strip()
+    return out.drop_duplicates()
+
+
+@lru_cache(maxsize=3)
+def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
+    path = base_dir / "Anexo1.Muerte2019_CE_15-03-23.csv"
+    if not path.exists():
+        raise FileNotFoundError(f"No se encontró: {path}")
+    df = pd.read_csv(path, encoding="latin1", low_memory=False)
+    df = _to_lower(df)
+    rename = {
+        "cod_departamento": "cod_dpto",
+        "cod_municipio": "cod_mpio",
+        "cod_muerte": "codigo_causa",
+        "año": "anio",
+        "mes": "mes",
+        "sexo": "sexo",
+        "grupo_edad1": "grupo_edad1"
+    }
+    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
+    df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
+    df["sexo_std"] = (
+        df["sexo"].astype(str)
+        .str.strip()
+        .str.upper()
+        .map({"1": "Masculino", "2": "Femenino", "M": "Masculino", "F": "Femenino"})
+        .fillna("Sin dato")
+    )
+    return df
 
 # ========================== SERVICIO ==========================
 
