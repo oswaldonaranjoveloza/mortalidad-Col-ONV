@@ -33,7 +33,8 @@ class DataLoader:
 
     def load_divipola(self) -> pd.DataFrame:
         path = self.base_dir / "Divipola_CE_.xlsx"
-        df = pd.read_excel(path)
+        #df = pd.read_excel(path)
+        df = pd.read_csv(path)
         df = _to_lower(df)
         rename = {
             "cod_departamento": "cod_dpto",
@@ -53,7 +54,8 @@ class DataLoader:
         path = self.base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.xlsx"
         if not path.exists():
             return None
-        df = pd.read_excel(path)
+        #df = pd.read_excel(path)
+        df = pd.read_csv(path)
         df = _to_lower(df)
         codigo_causa = _find_col(df.columns, ["cie-10"]) or _find_col(df.columns, ["codigo"]) or _find_col(df.columns, ["código"])
         nombre_causa = _find_col(df.columns, ["descripcion"]) or _find_col(df.columns, ["descripción"])
@@ -67,7 +69,8 @@ class DataLoader:
 
     def load_mortalidad(self) -> pd.DataFrame:
         path = self.base_dir / "Anexo1.Muerte2019_CE_15-03-23.xlsx"
-        df = pd.read_excel(path)
+        #df = pd.read_excel(path)
+        df = pd.read_csv(path)
         df = _to_lower(df)
         rename = {
             "cod_departamento": "cod_dpto",
