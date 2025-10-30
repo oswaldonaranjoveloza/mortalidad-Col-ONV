@@ -1,6 +1,5 @@
 from dash import html, dcc
 
-
 def build_filters_bar(svc):
     years = svc.years()
     dptos = svc.departamentos()
