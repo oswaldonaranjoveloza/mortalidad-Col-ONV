@@ -1,5 +1,5 @@
 from dash import html, dcc
-from components.filters import build_filters_bar
+from src.components.filters import build_filters_bar
 
 
 def layout(svc):
