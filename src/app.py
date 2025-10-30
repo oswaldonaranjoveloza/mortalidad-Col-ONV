@@ -81,20 +81,18 @@ def _cached_load_causas(base_dir: Path) -> Optional[pd.DataFrame]:
     out["nombre_causa"] = out["nombre_causa"].astype(str).str.strip()
     return out.drop_duplicates()
 
-
 @lru_cache(maxsize=3)
 def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
     path = base_dir / "Anexo1.Muerte2019_CE_15-03-23.csv"
     if not path.exists():
         raise FileNotFoundError(f"No se encontró: {path}")
 
-    # Intentar leer el CSV
     try:
         df = pd.read_csv(path, encoding="latin1", low_memory=False)
     except UnicodeDecodeError:
         df = pd.read_csv(path, encoding="utf-8", low_memory=False)
 
-    # Limpiar nombres de columnas (quita espacios, tildes, caracteres raros)
+    # Normalizar nombres de columnas
     df.columns = (
         df.columns
         .str.strip()
@@ -108,9 +106,13 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
         .str.replace(" ", "_")
     )
 
-    # Ahora los nombres son predecibles
+    # Corrección específica para columnas año/anio
+    if "anio" not in df.columns and "ano" in df.columns:
+        df = df.rename(columns={"ano": "anio"})
+    elif "anio" not in df.columns and "año" in df.columns:
+        df = df.rename(columns={"año": "anio"})
+
     rename = {
-        "anio": "anio",  # ← ya se normaliza sin tilde
         "cod_departamento": "cod_dpto",
         "cod_municipio": "cod_mpio",
         "cod_muerte": "codigo_causa",
@@ -120,11 +122,11 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
     }
     df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
 
-    # Validación: asegurar que la columna 'anio' exista
+    # Verificar columna 'anio'
     if "anio" not in df.columns:
-        raise KeyError(f"No se encontró la columna 'anio' después del renombrado. Columnas: {list(df.columns)}")
+        raise KeyError(f"No se encontró la columna 'anio'. Columnas disponibles: {list(df.columns)}")
 
-    # Conversión de tipos y estandarización
+    # Tipos y estandarización
     df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
     df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
     df["sexo_std"] = (
