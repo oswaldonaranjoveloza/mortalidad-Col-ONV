@@ -9,7 +9,7 @@ from functools import lru_cache
 import dash_bootstrap_components as dbc
 
 from src.layout import build_layout
-from src.allbacks import register_callbacks
+from src.callbacks import register_callbacks
 
 
 # ==========================================================
