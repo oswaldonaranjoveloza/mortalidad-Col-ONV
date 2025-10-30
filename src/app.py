@@ -87,7 +87,11 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
     path = base_dir / "Anexo1.Muerte2019_CE_15-03-23.csv"
     if not path.exists():
         raise FileNotFoundError(f"No se encontró: {path}")
-    df = pd.read_csv(path, encoding="latin1", low_memory=False)
+     # Intentar leer con latin1, fallback utf-8
+    try:
+        df = pd.read_csv(path, encoding="latin1", low_memory=False)
+    except UnicodeDecodeError:
+        df = pd.read_csv(path, encoding="utf-8", low_memory=False)
     df = _to_lower(df)
     rename = {
         "cod_departamento": "cod_dpto",
@@ -99,6 +103,7 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
         "grupo_edad1": "grupo_edad1"
     }
     df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    # Conversión de tipos
     df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
     df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
     df["sexo_std"] = (
