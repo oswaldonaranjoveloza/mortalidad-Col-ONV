@@ -8,8 +8,8 @@ from pathlib import Path
 from functools import lru_cache
 import dash_bootstrap_components as dbc
 
-from layout import build_layout
-from callbacks import register_callbacks
+from src.layout import build_layout
+from src.allbacks import register_callbacks
 
 
 # ==========================================================
