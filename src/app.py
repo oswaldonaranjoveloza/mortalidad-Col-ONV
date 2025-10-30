@@ -2,14 +2,14 @@
 from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional, List
-import dash
-import numpy as np
+
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, dash_table
 
-# Importaciones internas ajustadas a Render
 from src.callbacks import register_callbacks
 
 # ========================== UTILIDADES ==========================
@@ -25,16 +25,19 @@ def _find_col(columns: List[str], must_include: List[str]) -> Optional[str]:
             return c
     return None
 
-# ========================== DATA LOADER ==========================
+
+# ========================== DATA LOADER (OPTIMIZADO) ==========================
 
 @dataclass
 class DataLoader:
     base_dir: Path
 
+    @lru_cache
     def load_divipola(self) -> pd.DataFrame:
         path = self.base_dir / "Divipola_CE_.csv"
-        #df = pd.read_excel(path)
-        df = pd.read_csv(path)
+        if not path.exists():
+            raise FileNotFoundError(f"No se encontró: {path}")
+        df = pd.read_csv(path, encoding="latin1")
         df = _to_lower(df)
         rename = {
             "cod_departamento": "cod_dpto",
@@ -42,20 +45,18 @@ class DataLoader:
             "cod_municipio": "cod_mpio",
             "municipio": "nom_mpio"
         }
-        for k, v in rename.items():
-            if k in df.columns:
-                df = df.rename(columns={k: v})
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
         df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
         df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
         keep = [c for c in ["cod_dpto_int", "nom_dpto", "cod_mpio_int", "nom_mpio"] if c in df.columns]
         return df[keep].drop_duplicates()
 
+    @lru_cache
     def load_causas(self) -> Optional[pd.DataFrame]:
         path = self.base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
         if not path.exists():
             return None
-        #df = pd.read_excel(path)
-        df = pd.read_csv(path)
+        df = pd.read_csv(path, encoding="latin1")
         df = _to_lower(df)
         codigo_causa = _find_col(df.columns, ["cie-10"]) or _find_col(df.columns, ["codigo"]) or _find_col(df.columns, ["código"])
         nombre_causa = _find_col(df.columns, ["descripcion"]) or _find_col(df.columns, ["descripción"])
@@ -67,10 +68,12 @@ class DataLoader:
         out["nombre_causa"] = out["nombre_causa"].astype(str).str.strip()
         return out.drop_duplicates()
 
+    @lru_cache
     def load_mortalidad(self) -> pd.DataFrame:
         path = self.base_dir / "Anexo1.Muerte2019_CE_15-03-23.csv"
-        #df = pd.read_excel(path)
-        df = pd.read_csv(path)
+        if not path.exists():
+            raise FileNotFoundError(f"No se encontró: {path}")
+        df = pd.read_csv(path, encoding="latin1", low_memory=False)
         df = _to_lower(df)
         rename = {
             "cod_departamento": "cod_dpto",
@@ -81,9 +84,7 @@ class DataLoader:
             "sexo": "sexo",
             "grupo_edad1": "grupo_edad1"
         }
-        for k, v in rename.items():
-            if k in df.columns and v not in df.columns:
-                df = df.rename(columns={k: v})
+        df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
         df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
         df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
         df["sexo_std"] = (
@@ -95,115 +96,80 @@ class DataLoader:
         )
         return df
 
+
 # ========================== SERVICIO ==========================
 
 class MortalityService:
     def __init__(self, loader: DataLoader):
         self.loader = loader
-        self.divi = self.loader.load_divipola()
-        self.mort = self.loader.load_mortalidad()
-        self.causas = self.loader.load_causas()
-        self.mort = self.mort.merge(self.divi, left_on="cod_mpio_int", right_on="cod_mpio_int", how="left")
-        if self.causas is not None:
-            self.mort = self.mort.merge(self.causas, on="codigo_causa", how="left")
+
+    @property
+    def mort(self): return self.loader.load_mortalidad()
+    @property
+    def divi(self): return self.loader.load_divipola()
+    @property
+    def causas(self): return self.loader.load_causas()
 
     def years(self): return sorted(self.mort["anio"].dropna().unique().astype(int))
-    def departamentos(self): return sorted(self.mort["nom_dpto"].dropna().unique())
     def sexos(self): return ["Masculino", "Femenino", "Sin dato"]
 
     def muertes_por_depto(self, year: int | None, sexo: str | None):
-        df = self.mort.copy()
-        if year:
-            df = df[df["anio"] == int(year)]
+        df = self.mort
+        if year: df = df[df["anio"] == int(year)]
         if sexo and sexo != "Todos":
             df = df[df["sexo_std"].str.lower() == sexo.lower()]
-        if "nom_dpto" not in df.columns:
-            return pd.DataFrame(columns=["nom_dpto", "muertes"])
         resumen = (
-            df.groupby("nom_dpto", as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-            .sort_values("muertes", ascending=False)
+            df.groupby("cod_dpto", as_index=False)
+              .size().rename(columns={"size": "muertes"})
         )
-        return resumen
+        resumen = resumen.merge(self.divi, left_on="cod_dpto", right_on="cod_dpto_int", how="left")
+        return resumen[["nom_dpto", "muertes"]].sort_values("muertes", ascending=False)
 
     def muertes_por_mes(self, year: int | None, sexo: str | None):
-        df = self.mort.copy()
-        if year:
-            df = df[df["anio"] == int(year)]
-        if sexo and sexo != "Todos":
-            df = df[df["sexo_std"].str.lower() == sexo.lower()]
-        if "mes" not in df.columns:
-            return pd.DataFrame(columns=["mes", "muertes"])
-        resumen = (
-            df.groupby("mes", as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-            .sort_values("mes")
-        )
-        return resumen
+        df = self.mort
+        if year: df = df[df["anio"] == int(year)]
+        if sexo and sexo != "Todos": df = df[df["sexo_std"].str.lower() == sexo.lower()]
+        return (df.groupby("mes", as_index=False)
+                  .size().rename(columns={"size": "muertes"})
+                  .sort_values("mes"))
 
     def causas_principales(self, year: int | None, sexo: str | None, top_n: int = 10):
-        df = self.mort.copy()
-        if year:
-            df = df[df["anio"] == int(year)]
-        if sexo and sexo != "Todos":
-            df = df[df["sexo_std"].str.lower() == sexo.lower()]
-        if "nombre_causa" not in df.columns:
-            return pd.DataFrame(columns=["nombre_causa", "muertes"])
-        resumen = (
-            df.groupby("nombre_causa", as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-            .sort_values("muertes", ascending=False)
-            .head(top_n)
-        )
+        df = self.mort
+        if year: df = df[df["anio"] == int(year)]
+        if sexo and sexo != "Todos": df = df[df["sexo_std"].str.lower() == sexo.lower()]
+        resumen = (df.groupby("codigo_causa", as_index=False)
+                     .size().rename(columns={"size": "muertes"})
+                     .sort_values("muertes", ascending=False)
+                     .head(top_n))
+        causas = self.causas
+        if causas is not None:
+            resumen = resumen.merge(causas, on="codigo_causa", how="left")
         return resumen
 
     def top_ciudades(self, year: int | None, sexo: str | None, top_n: int = 10):
-        df = self.mort.copy()
-        if year:
-            df = df[df["anio"] == int(year)]
-        if sexo and sexo != "Todos":
-            df = df[df["sexo_std"].str.lower() == sexo.lower()]
-        if "nom_mpio" not in df.columns:
-            return pd.DataFrame(columns=["nom_mpio", "muertes"])
-        resumen = (
-            df.groupby("nom_mpio", as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-            .sort_values("muertes", ascending=False)
-        )
+        df = self.mort
+        if year: df = df[df["anio"] == int(year)]
+        if sexo and sexo != "Todos": df = df[df["sexo_std"].str.lower() == sexo.lower()]
+        resumen = (df.groupby("nom_mpio", as_index=False)
+                     .size().rename(columns={"size": "muertes"})
+                     .sort_values("muertes", ascending=False))
         return resumen.head(top_n), resumen.tail(top_n)
 
     def sexo_por_depto(self, year: int | None):
-        df = self.mort.copy()
-        if year:
-            df = df[df["anio"] == int(year)]
-        if "nom_dpto" not in df.columns or "sexo_std" not in df.columns:
-            return pd.DataFrame(columns=["nom_dpto", "sexo_std", "muertes"])
-        resumen = (
-            df.groupby(["nom_dpto", "sexo_std"], as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-        )
+        df = self.mort
+        if year: df = df[df["anio"] == int(year)]
+        resumen = (df.groupby(["nom_dpto", "sexo_std"], as_index=False)
+                     .size().rename(columns={"size": "muertes"}))
         return resumen
 
     def histo_edades(self, year: int | None, sexo: str | None):
-        df = self.mort.copy()
-        if year:
-            df = df[df["anio"] == int(year)]
-        if sexo and sexo != "Todos":
-            df = df[df["sexo_std"].str.lower() == sexo.lower()]
-        if "grupo_edad1" not in df.columns:
-            return pd.DataFrame(columns=["grupo_edad1", "muertes"])
-        resumen = (
-            df.groupby("grupo_edad1", as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-            .sort_values("grupo_edad1")
-        )
-        return resumen
+        df = self.mort
+        if year: df = df[df["anio"] == int(year)]
+        if sexo and sexo != "Todos": df = df[df["sexo_std"].str.lower() == sexo.lower()]
+        return (df.groupby("grupo_edad1", as_index=False)
+                  .size().rename(columns={"size": "muertes"})
+                  .sort_values("grupo_edad1"))
+
 
 # ========================== DASH APP ==========================
 
@@ -217,14 +183,10 @@ def create_app() -> Dash:
     years = svc.years()
     sexos = svc.sexos()
 
-    # Layout principal
     app.layout = html.Div([
-        dcc.Store(id="theme-store", data="light"),
-
         html.H2("Mortalidad en Colombia — Explorador interactivo (2019)"),
         html.P("Fuente: Registros de mortalidad, CIE-10 y DIVIPOLA."),
 
-        # Barra de filtros
         html.Div([
             html.Div([
                 html.Label("Año"),
@@ -235,8 +197,7 @@ def create_app() -> Dash:
                     clearable=False,
                     style={"width": "120px"}
                 )
-            ], className="dd-wrap"),
-
+            ]),
             html.Div([
                 html.Label("Sexo"),
                 dcc.Dropdown(
@@ -247,30 +208,9 @@ def create_app() -> Dash:
                     clearable=False,
                     style={"width": "180px"}
                 )
-            ], className="dd-wrap"),
+            ]),
+        ], style={"display": "flex", "gap": "16px", "marginBottom": "10px"}),
 
-            html.Div([
-                dcc.Checklist(
-                    id="theme-toggle",
-                    options=[{"label": "🌓 Tema claro", "value": "light"}],
-                    value=["light"],
-                    inputStyle={"marginRight": "6px"},
-                    style={"marginTop": "22px"}
-                )
-            ], className="dd-wrap"),
-        ], style={
-            "display": "grid",
-            "gridTemplateColumns": "160px 220px 1fr",
-            "gap": "12px",
-            "alignItems": "end",
-            "padding": "12px",
-            "background": "#f5f7fb",
-            "borderRadius": "12px",
-            "border": "1px solid rgba(31,111,235,.20)",
-            "marginBottom": "10px"
-        }),
-
-        # Pestañas
         dcc.Tabs(id="tabs", value="mapa", children=[
             dcc.Tab(label="Mapa geográfico", value="mapa", children=[
                 dcc.Graph(id="fig-mapa", config={"displaylogo": False})
@@ -293,14 +233,6 @@ def create_app() -> Dash:
                     sort_action="native",
                 ),
             ]),
-            dcc.Tab(label="Ciudades violentas y pacíficas", value="ciudades", children=[
-                dcc.Graph(id="fig-top-violentas", config={"displaylogo": False}),
-                dcc.Graph(id="fig-bottom-pacificas", config={"displaylogo": False}),
-            ]),
-            dcc.Tab(label="Distribución por sexo y edad", value="sexo_edad", children=[
-                dcc.Graph(id="fig-sexo-depto", config={"displaylogo": False}),
-                dcc.Graph(id="fig-histo-edad", config={"displaylogo": False}),
-            ]),
         ])
     ])
 
@@ -308,7 +240,6 @@ def create_app() -> Dash:
     return app
 
 
-# Instancia principal
 app = create_app()
 server = app.server
 
