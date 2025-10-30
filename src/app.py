@@ -119,7 +119,7 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
     df = df.rename(columns=rename)
 
     # Normalización de valores
-    df["anio"] = pd.to_numeric(df.get("anio") or df.get("ano"), errors="coerce").astype("Int64")
+    df["anio"] = pd.to_numeric(df.get("anio"), errors="coerce").astype("Int64")
     df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
     df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
     df["sexo_std"] = (
