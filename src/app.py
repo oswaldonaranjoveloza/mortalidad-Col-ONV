@@ -1,5 +1,4 @@
 # src/app.py — versión final lista para despliegue en Render
-
 from __future__ import annotations
 from pathlib import Path
 from dataclasses import dataclass
@@ -9,8 +8,9 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, dash_table
+
+# Importaciones internas ajustadas a Render
 from src.callbacks import register_callbacks
-from src.components.filters import filters_bar
 
 # ========================== UTILIDADES ==========================
 
@@ -35,12 +35,18 @@ class DataLoader:
         path = self.base_dir / "Divipola_CE_.xlsx"
         df = pd.read_excel(path)
         df = _to_lower(df)
-        rename = {"cod_departamento":"cod_dpto","departamento":"nom_dpto","cod_municipio":"cod_mpio","municipio":"nom_mpio"}
-        for k,v in rename.items():
-            if k in df.columns: df = df.rename(columns={k:v})
+        rename = {
+            "cod_departamento": "cod_dpto",
+            "departamento": "nom_dpto",
+            "cod_municipio": "cod_mpio",
+            "municipio": "nom_mpio"
+        }
+        for k, v in rename.items():
+            if k in df.columns:
+                df = df.rename(columns={k: v})
         df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
         df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
-        keep = [c for c in ["cod_dpto_int","nom_dpto","cod_mpio_int","nom_mpio"] if c in df.columns]
+        keep = [c for c in ["cod_dpto_int", "nom_dpto", "cod_mpio_int", "nom_mpio"] if c in df.columns]
         return df[keep].drop_duplicates()
 
     def load_causas(self) -> Optional[pd.DataFrame]:
@@ -54,7 +60,7 @@ class DataLoader:
         if not codigo_causa or not nombre_causa:
             return None
         out = df[[codigo_causa, nombre_causa]].dropna().copy()
-        out = out.rename(columns={codigo_causa:"codigo_causa", nombre_causa:"nombre_causa"})
+        out = out.rename(columns={codigo_causa: "codigo_causa", nombre_causa: "nombre_causa"})
         out["codigo_causa"] = out["codigo_causa"].astype(str).str.upper().str.strip()
         out["nombre_causa"] = out["nombre_causa"].astype(str).str.strip()
         return out.drop_duplicates()
@@ -63,13 +69,27 @@ class DataLoader:
         path = self.base_dir / "Anexo1.Muerte2019_CE_15-03-23.xlsx"
         df = pd.read_excel(path)
         df = _to_lower(df)
-        rename = {"cod_departamento":"cod_dpto","cod_municipio":"cod_mpio","cod_muerte":"codigo_causa","año":"anio","mes":"mes","sexo":"sexo","grupo_edad1":"grupo_edad1"}
-        for k,v in rename.items():
+        rename = {
+            "cod_departamento": "cod_dpto",
+            "cod_municipio": "cod_mpio",
+            "cod_muerte": "codigo_causa",
+            "año": "anio",
+            "mes": "mes",
+            "sexo": "sexo",
+            "grupo_edad1": "grupo_edad1"
+        }
+        for k, v in rename.items():
             if k in df.columns and v not in df.columns:
-                df = df.rename(columns={k:v})
+                df = df.rename(columns={k: v})
         df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
         df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
-        df["sexo_std"] = df["sexo"].astype(str).str.strip().str.upper().map({"1":"Masculino","2":"Femenino","M":"Masculino","F":"Femenino"}).fillna("Sin dato")
+        df["sexo_std"] = (
+            df["sexo"].astype(str)
+            .str.strip()
+            .str.upper()
+            .map({"1": "Masculino", "2": "Femenino", "M": "Masculino", "F": "Femenino"})
+            .fillna("Sin dato")
+        )
         return df
 
 # ========================== SERVICIO ==========================
@@ -85,25 +105,17 @@ class MortalityService:
             self.mort = self.mort.merge(self.causas, on="codigo_causa", how="left")
 
     def years(self): return sorted(self.mort["anio"].dropna().unique().astype(int))
-    
     def departamentos(self): return sorted(self.mort["nom_dpto"].dropna().unique())
-    
-    def sexos(self): return ["Masculino","Femenino","Sin dato"]
-    
-    def muertes_por_depto(self, year: int | None, sexo: str | None):
-        """Agrupa las muertes por departamento, filtrando por año y sexo."""
-        df = self.mort.copy()
+    def sexos(self): return ["Masculino", "Femenino", "Sin dato"]
 
+    def muertes_por_depto(self, year: int | None, sexo: str | None):
+        df = self.mort.copy()
         if year:
             df = df[df["anio"] == int(year)]
-
         if sexo and sexo != "Todos":
             df = df[df["sexo_std"].str.lower() == sexo.lower()]
-
-        # Verificar que nom_dpto exista
         if "nom_dpto" not in df.columns:
             return pd.DataFrame(columns=["nom_dpto", "muertes"])
-
         resumen = (
             df.groupby("nom_dpto", as_index=False)["anio"]
             .count()
@@ -190,7 +202,7 @@ class MortalityService:
         )
         return resumen
 
-# ========================== APP DASH ==========================
+# ========================== DASH APP ==========================
 
 def create_app() -> Dash:
     data_dir = Path(__file__).resolve().parent.parent / "data"
@@ -198,40 +210,18 @@ def create_app() -> Dash:
 
     app = Dash(__name__, suppress_callback_exceptions=True)
     app.title = "Mortalidad en Colombia — 2019"
-    # --- construir opciones para filtros desde el servicio ---
+
     years = svc.years()
     sexos = svc.sexos()
-    
-    def muertes_por_depto(self, year: int | None, sexo: str | None):
-        """Agrupa las muertes por departamento, filtrando por año y sexo."""
-        df = self.mort.copy()
 
-        if year:
-            df = df[df["anio"] == int(year)]
-
-        if sexo and sexo != "Todos":
-            df = df[df["sexo_std"].str.lower() == sexo.lower()]
-
-        # Verificar que nom_dpto exista
-        if "nom_dpto" not in df.columns:
-            return pd.DataFrame(columns=["nom_dpto", "muertes"])
-
-        resumen = (
-            df.groupby("nom_dpto", as_index=False)["anio"]
-            .count()
-            .rename(columns={"anio": "muertes"})
-            .sort_values("muertes", ascending=False)
-        )
-        return resumen
-
+    # Layout principal
     app.layout = html.Div([
-        # Store para tema (lo usa callbacks.py)
         dcc.Store(id="theme-store", data="light"),
 
         html.H2("Mortalidad en Colombia — Explorador interactivo (2019)"),
         html.P("Fuente: Registros de mortalidad, CIE-10 y DIVIPOLA."),
 
-        # Barra de filtros (IDs según callbacks.py)
+        # Barra de filtros
         html.Div([
             html.Div([
                 html.Label("Año"),
@@ -277,7 +267,7 @@ def create_app() -> Dash:
             "marginBottom": "10px"
         }),
 
-        # Pestañas con los Graph que esperan los callbacks
+        # Pestañas
         dcc.Tabs(id="tabs", value="mapa", children=[
             dcc.Tab(label="Mapa geográfico", value="mapa", children=[
                 dcc.Graph(id="fig-mapa", config={"displaylogo": False})
@@ -314,6 +304,8 @@ def create_app() -> Dash:
     register_callbacks(app, svc)
     return app
 
+
+# Instancia principal
 app = create_app()
 server = app.server
 
