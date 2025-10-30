@@ -110,7 +110,7 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
 
     # Ahora los nombres son predecibles
     rename = {
-        "ano": "anio",  # ← ya se normaliza sin tilde
+        "anio": "anio",  # ← ya se normaliza sin tilde
         "cod_departamento": "cod_dpto",
         "cod_municipio": "cod_mpio",
         "cod_muerte": "codigo_causa",
@@ -228,7 +228,7 @@ def create_app() -> Dash:
 
         html.Div([
             html.Div([
-                html.Label("Año"),
+                html.Label("Anio"),
                 dcc.Dropdown(
                     id="flt-year",
                     options=[{"label": str(y), "value": int(y)} for y in years],
