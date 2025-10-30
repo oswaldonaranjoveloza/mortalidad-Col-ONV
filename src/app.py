@@ -32,7 +32,7 @@ class DataLoader:
     base_dir: Path
 
     def load_divipola(self) -> pd.DataFrame:
-        path = self.base_dir / "Divipola_CE_.xlsx"
+        path = self.base_dir / "Divipola_CE_.csv"
         #df = pd.read_excel(path)
         df = pd.read_csv(path)
         df = _to_lower(df)
@@ -51,7 +51,7 @@ class DataLoader:
         return df[keep].drop_duplicates()
 
     def load_causas(self) -> Optional[pd.DataFrame]:
-        path = self.base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.xlsx"
+        path = self.base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
         if not path.exists():
             return None
         #df = pd.read_excel(path)
@@ -68,7 +68,7 @@ class DataLoader:
         return out.drop_duplicates()
 
     def load_mortalidad(self) -> pd.DataFrame:
-        path = self.base_dir / "Anexo1.Muerte2019_CE_15-03-23.xlsx"
+        path = self.base_dir / "Anexo1.Muerte2019_CE_15-03-23.csv"
         #df = pd.read_excel(path)
         df = pd.read_csv(path)
         df = _to_lower(df)
