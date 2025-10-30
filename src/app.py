@@ -44,24 +44,26 @@ class DataLoader:
 
 # === Funciones caché seguras (hashable por Path) ===
 
+# === Funciones caché seguras (hashable por Path) ===
+
 @lru_cache(maxsize=3)
 def _cached_load_divipola(base_dir: Path) -> pd.DataFrame:
     path = base_dir / "Divipola_CE_.csv"
     if not path.exists():
         raise FileNotFoundError(f"No se encontró: {path}")
-    df = pd.read_csv(path, encoding="latin1")
-    df = _to_lower(df)
+    df = pd.read_csv(path, encoding="latin1", low_memory=False)
+    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+
     rename = {
         "cod_departamento": "cod_dpto",
         "departamento": "nom_dpto",
         "cod_municipio": "cod_mpio",
         "municipio": "nom_mpio"
     }
-    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
-    df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
-    df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
-    keep = [c for c in ["cod_dpto_int", "nom_dpto", "cod_mpio_int", "nom_mpio"] if c in df.columns]
-    return df[keep].drop_duplicates()
+    df = df.rename(columns=rename)
+    df["cod_dpto_int"] = pd.to_numeric(df["cod_dpto"], errors="coerce").astype("Int64")
+    df["cod_mpio_int"] = pd.to_numeric(df["cod_mpio"], errors="coerce").astype("Int64")
+    return df[["cod_dpto_int", "nom_dpto", "cod_mpio_int", "nom_mpio"]].drop_duplicates()
 
 
 @lru_cache(maxsize=3)
@@ -69,17 +71,20 @@ def _cached_load_causas(base_dir: Path) -> Optional[pd.DataFrame]:
     path = base_dir / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
     if not path.exists():
         return None
-    df = pd.read_csv(path, encoding="latin1")
-    df = _to_lower(df)
-    codigo_causa = _find_col(df.columns, ["cie-10"]) or _find_col(df.columns, ["codigo"]) or _find_col(df.columns, ["código"])
-    nombre_causa = _find_col(df.columns, ["descripcion"]) or _find_col(df.columns, ["descripción"])
-    if not codigo_causa or not nombre_causa:
-        return None
-    out = df[[codigo_causa, nombre_causa]].dropna().copy()
-    out = out.rename(columns={codigo_causa: "codigo_causa", nombre_causa: "nombre_causa"})
-    out["codigo_causa"] = out["codigo_causa"].astype(str).str.upper().str.strip()
-    out["nombre_causa"] = out["nombre_causa"].astype(str).str.strip()
-    return out.drop_duplicates()
+    df = pd.read_csv(path, encoding="latin1", low_memory=False)
+    df.columns = df.columns.str.strip().str.lower().str.replace(" ", "_")
+
+    codigo_col = next((c for c in df.columns if "cie" in c or "codigo" in c), None)
+    nombre_col = next((c for c in df.columns if "descripcion" in c), None)
+
+    if not codigo_col or not nombre_col:
+        raise KeyError(f"No se encontró columna de código o descripción en {path}")
+
+    df = df.rename(columns={codigo_col: "codigo_causa", nombre_col: "nombre_causa"})
+    df["codigo_causa"] = df["codigo_causa"].astype(str).str.strip().str.upper()
+    df["nombre_causa"] = df["nombre_causa"].astype(str).str.strip()
+    return df[["codigo_causa", "nombre_causa"]].drop_duplicates()
+
 
 @lru_cache(maxsize=3)
 def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
@@ -87,12 +92,7 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
     if not path.exists():
         raise FileNotFoundError(f"No se encontró: {path}")
 
-    try:
-        df = pd.read_csv(path, encoding="latin1", low_memory=False)
-    except UnicodeDecodeError:
-        df = pd.read_csv(path, encoding="utf-8", low_memory=False)
-
-    # Normalizar nombres de columnas
+    df = pd.read_csv(path, encoding="latin1", low_memory=False)
     df.columns = (
         df.columns
         .str.strip()
@@ -106,36 +106,33 @@ def _cached_load_mortalidad(base_dir: Path) -> pd.DataFrame:
         .str.replace(" ", "_")
     )
 
-    # Corrección específica para columnas año/anio
-    if "anio" not in df.columns and "ano" in df.columns:
-        df = df.rename(columns={"ano": "anio"})
-    elif "anio" not in df.columns and "año" in df.columns:
-        df = df.rename(columns={"año": "anio"})
-
     rename = {
         "cod_departamento": "cod_dpto",
         "cod_municipio": "cod_mpio",
         "cod_muerte": "codigo_causa",
+        "anio": "anio",
         "mes": "mes",
         "sexo": "sexo",
-        "grupo_edad1": "grupo_edad1"
+        "grupo_edad1": "grupo_edad1",
+        "manera_muerte": "manera_muerte"
     }
-    df = df.rename(columns={k: v for k, v in rename.items() if k in df.columns})
+    df = df.rename(columns=rename)
 
-    # Verificar columna 'anio'
-    if "anio" not in df.columns:
-        raise KeyError(f"No se encontró la columna 'anio'. Columnas disponibles: {list(df.columns)}")
-
-    # Tipos y estandarización
+    # Normalización de valores
+    df["anio"] = pd.to_numeric(df.get("anio") or df.get("ano"), errors="coerce").astype("Int64")
     df["cod_dpto_int"] = pd.to_numeric(df.get("cod_dpto"), errors="coerce").astype("Int64")
     df["cod_mpio_int"] = pd.to_numeric(df.get("cod_mpio"), errors="coerce").astype("Int64")
     df["sexo_std"] = (
         df["sexo"].astype(str)
         .str.strip()
-        .str.upper()
-        .map({"1": "Masculino", "2": "Femenino", "M": "Masculino", "F": "Femenino"})
+        .map({"1": "Masculino", "2": "Femenino"})
         .fillna("Sin dato")
     )
+
+    # Unir con Divipola para obtener nombres
+    divi = _cached_load_divipola(base_dir)
+    df = df.merge(divi, on="cod_dpto_int", how="left")
+
     return df
 
 # ========================== SERVICIO ==========================
