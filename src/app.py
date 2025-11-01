@@ -138,29 +138,32 @@ fig_barras_violencia = px.bar(df_ciudades_violentas, x='MUNICIPIO', y='Total_Hom
 #fig_pie_menor = px.pie(df_ciudades_menor, names='MUNICIPIO', values='Porcentaje',
 #                       title='Top 10 Ciudades con Menor Mortalidad (%)')
 
-df_ciudades_total = df_final.groupby('MUNICIPIO', as_index=False).size().rename(columns={'size': 'Total_Muertes'})
+df_ciudades_total = (df_final.groupby('MUNICIPIO', as_index=False).size().rename(columns={'size': 'Total_Muertes'}))
+
+# Calcular porcentaje con más precisión
 total_general = df_ciudades_total['Total_Muertes'].sum()
 df_ciudades_total['Porcentaje'] = (df_ciudades_total['Total_Muertes'] / total_general) * 100
 
 # Seleccionar las 10 ciudades con menor mortalidad
 df_ciudades_menor = df_ciudades_total.sort_values('Total_Muertes').head(10)
 
-# Gráfico de torta con etiquetas detalladas
+# Crear gráfico de torta mostrando cantidad y porcentaje con dos decimales
 fig_pie_menor = px.pie(
     df_ciudades_menor,
     names='MUNICIPIO',
     values='Total_Muertes',
     title='Top 10 Ciudades con Menor Mortalidad (Cantidad y Porcentaje)',
-    hover_data={'Porcentaje': ':.2f', 'Total_Muertes': True},
+    hole=0,  # puedes cambiar a 0.3 si prefieres estilo "donut"
 )
 
-# Mostrar etiquetas con nombre y porcentaje
+# Mostrar etiquetas con nombre + cantidad + porcentaje exacto
 fig_pie_menor.update_traces(
-    textinfo='label+percent',
-    hovertemplate='%{label}<br>Total: %{value}<br>Porcentaje: %{percent}',
-    textfont_size=14
+    textinfo='label+value+percent',
+    #texttemplate='%{label}<br>%{value} muertes<br>(%{percent:.2%})',
+    texttemplate=f'%{{label}}<br>%{value} / int(total_general) muertes<br>({{percent:.2%}})',
+    hovertemplate='<b>%{label}</b><br>Total: %{value} muertes<br>Porcentaje: %{percent:.2%}',
+    textfont_size=13
 ) 
-
 
 # =========================================================================
 # === 7. Tabla de 10 principales causas de muerte ===
