@@ -1,7 +1,7 @@
 # =========================================================================
 # PROGRAMA COMPLETO: Análisis de Mortalidad en Colombia (2019)
 # =========================================================================
-
+import os
 import pandas as pd
 import geopandas as gpd
 import plotly.express as px
@@ -218,5 +218,6 @@ app.layout = html.Div(style={'backgroundColor':'#f8f9fa','padding':'20px'}, chil
 ])
 
 if __name__ == '__main__':
-    print(" Servidor ejecutándose en: http://127.0.0.1:8050/")
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 8050))  # Render usa una variable PORT
+    print(f"Servidor ejecutándose en: http://127.0.0.1:{port}/")
+    app.run(host='0.0.0.0', port=port, debug=False)
