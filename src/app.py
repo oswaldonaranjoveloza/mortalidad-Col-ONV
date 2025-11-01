@@ -176,8 +176,10 @@ app = Dash(__name__)
 server = app.server
 
 app.layout = html.Div(style={'backgroundColor':'#f8f9fa','padding':'20px'}, children=[
-    html.H1('Análisis de Mortalidad en Colombia (2019) 🇨🇴', style={'textAlign':'center','color':'#343a40','margin-bottom':'30px'}),
-
+#    html.H1('Análisis de Mortalidad en Colombia (2019) 🇨🇴', style={'textAlign':'center','color':'#343a40','margin-bottom':'30px'}),
+    html.H1('Análisis de Mortalidad en Colombia (2019) 🇨🇴', style={'textAlign': 'center', 'color': '#343a40', 'margin-bottom': '10px'}),
+    html.H4('Autores: Oswaldo Naranjo Veloza y Manuel Antonio Sanabria Gil', style={'textAlign': 'center', 'color': '#6c757d', 'margin-bottom': '30px'}),
+#
     html.Div(style={'backgroundColor':'white','padding':'10px','borderRadius':'8px','boxShadow':'0 4px 6px rgba(0,0,0,0.1)','maxWidth':'95%','margin':'auto'}, children=[
         dcc.Graph(id='mapa-mortalidad', figure=fig_mapa),
         dcc.Graph(id='lineas-mes', figure=fig_lineas),
