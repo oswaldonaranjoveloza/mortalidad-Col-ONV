@@ -1,174 +1,194 @@
-# src/app.py — versión final lista para despliegue en Render
+# =========================================================================
+# PROGRAMA COMPLETO: Análisis de Mortalidad en Colombia (2019)
+# =========================================================================
+
 import pandas as pd
-from dash import Dash
-from dash import html
-from dash import dcc
-from dash_bootstrap_components.themes import FLATLY
-from pathlib import Path
-from functools import lru_cache
-import dash_bootstrap_components as dbc
+import geopandas as gpd
+import plotly.express as px
+import plotly.graph_objects as go
+from dash import Dash, dcc, html
+import json
 
-from src.layout import build_layout
-from src.callbacks import register_callbacks
+# =========================================================================
+# === 1. CARGA DE DATOS ===
+# =========================================================================
+try:
+    df_mortalidad = pd.read_excel('data/Mortalidad.xlsx', sheet_name='No_Fetales_2019')
+    df_divipola = pd.read_excel('data/Divipola.xlsx', sheet_name='Hoja1')
+    df_codigos = pd.read_excel('data/CIE10.xlsx', sheet_name='Final')
+    print(" Archivos cargados correctamente.")
+except FileNotFoundError:
+    print(" ERROR: faltan archivos .xlsx")
+    exit()
 
+# =========================================================================
+# === 2. LIMPIEZA Y FORMATEO DE DATOS ===
+# =========================================================================
+# Formato COD_DANE y COD_DEPARTAMENTO
+df_mortalidad['COD_DANE'] = df_mortalidad['COD_DANE'].astype(str).str.zfill(5)
+df_mortalidad['COD_DEPARTAMENTO'] = df_mortalidad['COD_DEPARTAMENTO'].astype(str).str.zfill(2)
 
-# ==========================================================
-# 1. Carga de datos base
-# ==========================================================
-class DataLoader:
-    def __init__(self, base_dir: Path):
-        self.base_dir = base_dir
+# Divipola
+df_divipola.columns = ['COD_DANE', 'COD_DEPARTAMENTO', 'DEPARTAMENTO', 'COD_MUNICIPIO', 'MUNICIPIO', 'FECHA1erFIS']
+df_divipola['COD_DANE'] = df_divipola['COD_DANE'].astype(str).str.zfill(5)
+df_divipola = df_divipola[['COD_DANE', 'DEPARTAMENTO', 'MUNICIPIO']].drop_duplicates()
 
-    @lru_cache(maxsize=None)
-    def load_mortalidad(self):
-        file = self.base_dir / "data" / "Anexo1.Muerte2019_CE_15-03-23.csv"
-        df = pd.read_csv(file, encoding="utf-8")
-        print("\n=== CARGANDO ARCHIVO DE MORTALIDAD ===")
-        print(f"Ruta: {file}")
-        print("Columnas detectadas:", list(df.columns))
-        print("Primeras filas:")
-        print(df.head(5))
-        print("======================================\n")
-        df.columns = [c.strip().lower() for c in df.columns]  # ← normaliza nombres
+# Merge mortalidad con nombres de departamentos
+df_final = pd.merge(df_mortalidad, df_divipola, on='COD_DANE', how='left')
 
-        # Normaliza nombres esperados
-        rename_map = {
-            "anio": "anio",
-            "año": "anio",
-            "ano": "anio",
-            "cod_departamento": "cod_departamento",
-            "cod_dane": "cod_dane",
-            "cod_muerte": "cod_muerte",
-            "sexo": "sexo",
-            "mes": "mes",
-            "manera_muerte": "manera_muerte",
-        }
-        df.rename(columns=rename_map, inplace=True)
+# Seleccionar códigos de muerte
+df_codigos = df_codigos[['CodigoMuerte', 'DescripcionCodigoMuerte']].copy()
 
-        # Convierte tipos
-        df["anio"] = pd.to_numeric(df["anio"], errors="coerce")
-        df["mes"] = pd.to_numeric(df["mes"], errors="coerce")
-        df["sexo"] = df["sexo"].map({1: "Masculino", 2: "Femenino"}).fillna("Todos")
+# Merge con descripción de códigos
+df_final = pd.merge(df_final, df_codigos, left_on='COD_MUERTE', right_on='CodigoMuerte', how='left')
 
-        return df
+# =========================================================================
+# === 3. MAPA: Total de muertes por departamento ===
+# =========================================================================
+df_mapa = df_final.groupby('DEPARTAMENTO', as_index=False).agg(Total_Muertes_Dpto=('AÑO', 'size'))
 
-    @lru_cache(maxsize=None)
-    def load_codigos(self):
-        file = self.base_dir / "data" / "Anexo2.CodigosDeMuerte_CE_15-03-23.csv"
-        df = pd.read_csv(file, encoding="utf-8")
-        print("\n=== CARGANDO CÓDIGOS DE MUERTE ===")
-        print(df.head(5))
-        print("===================================\n")
-        return df
-        df.columns = [c.strip().lower() for c in df.columns]
-        rename_map = {"codigo": "codigo_causa", "nombre": "nombre_causa"}
-        df.rename(columns=rename_map, inplace=True)
-        return df
+# Equivalencias para nombres del GeoJSON
+dic_equivalencias = {
+    "Amazonas": "Amazonas",
+    "Antioquia": "Antioquia",
+    "Arauca": "Arauca",
+    "Atlántico": "Atlantico",
+    "Bolívar": "Bolivar",
+    "Boyacá": "Boyaca",
+    "Caldas": "Caldas",
+    "Caquetá": "Caqueta",
+    "Casanare": "Casanare",
+    "Cauca": "Cauca",
+    "Cesar": "Cesar",
+    "Chocó": "Choco",
+    "Córdoba": "Cordoba",
+    "Cundinamarca": "Cundinamarca",
+    "Guainía": "Guainia",
+    "Guaviare": "Guaviare",
+    "Huila": "Huila",
+    "La Guajira": "La Guajira",
+    "Magdalena": "Magdalena",
+    "Meta": "Meta",
+    "Nariño": "Narino",
+    "Norte De Santander": "Norte de Santander",
+    "Putumayo": "Putumayo",
+    "Quindío": "Quindio",
+    "Risaralda": "Risaralda",
+    "Archipiélago De San Andrés, Providencia Y Santa Catalina": "San Andres, Providencia y Santa Catalina",
+    "Santander": "Santander",
+    "Sucre": "Sucre",
+    "Tolima": "Tolima",
+    "Valle Del Cauca": "Valle del Cauca",
+    "Vaupés": "Vaupes",
+    "Vichada": "Vichada",
+    "Bogotá, D.C.": "Bogota D.C."
+}
 
-    @lru_cache(maxsize=None)
-    def load_divipola(self):
-        file = self.base_dir / "data" / "Divipola_CE_.csv"
-        df = pd.read_csv(file, encoding="utf-8")
-        print("\n=== CARGANDO DIVIPOLA ===")
-        print(df.head(5))
-        print("===================================\n")
-        return df
-        df.columns = [c.strip().lower() for c in df.columns]
-        rename_map = {
-            "cod_departamento": "cod_departamento",
-            "nom_dpto": "nom_dpto",
-        }
-        df.rename(columns=rename_map, inplace=True)
-        return df
+df_mapa['DEPARTAMENTO'] = df_mapa['DEPARTAMENTO'].astype(str).str.title().str.strip()
+df_mapa['shapeName'] = df_mapa['DEPARTAMENTO'].map(dic_equivalencias)
 
+# GeoJSON
+try:
+    gdf = gpd.read_file('colombia_departamentos.geojson')
+except:
+    gdf = gpd.read_file('data/geoBoundaries-COL-ADM1_simplified.geojson')
+gdf = gdf.to_crs(epsg=4326)
+geo_json = json.loads(gdf.to_json())
 
-# ==========================================================
-# 2. Servicio de consulta
-# ==========================================================
-class MortalityService:
-    def __init__(self, loader: DataLoader):
-        self.loader = loader
+fig_mapa = px.choropleth_map(
+    df_mapa,
+    geojson=geo_json,
+    locations='shapeName',
+    featureidkey='properties.shapeName',
+    color='Total_Muertes_Dpto',
+    hover_name='shapeName',
+    hover_data={'Total_Muertes_Dpto': True},
+    color_continuous_scale='Reds',
+    title="Distribución Total de Muertes por Departamento (2019)",
+    center={"lat": 4.6, "lon": -74.1},
+    zoom=5,
+    opacity=0.8,
+    map_style="carto-positron"
+)
+fig_mapa.update_traces(marker_line_width=0.8, marker_line_color="black")
+fig_mapa.update_layout(height=900, margin=dict(l=0,r=0,t=70,b=20), coloraxis_colorbar=dict(title="Total de muertes"))
 
-    @property
-    @lru_cache(maxsize=None)
-    def mort(self):
-        return self.loader.load_mortalidad()
+# =========================================================================
+# === 4. Gráfico de líneas: total de muertes por MES ===
+# =========================================================================
+df_meses = df_final.groupby('MES', as_index=False).size().rename(columns={'size':'Total_Muertes'})
+fig_lineas = px.line(df_meses, x='MES', y='Total_Muertes', markers=True,
+                     title='Total de Muertes por Mes (2019)', labels={'MES':'Mes', 'Total_Muertes':'Total de Muertes'})
 
-    def years(self):
-        return sorted(self.mort["anio"].dropna().unique().astype(int))
+# =========================================================================
+# === 5. Top 5 ciudades más violentas (códigos X9) ===
+# =========================================================================
+df_violencia = df_final[df_final['COD_MUERTE'].str.startswith('X9')]
+df_ciudades_violentas = df_violencia.groupby('MUNICIPIO', as_index=False).size().rename(columns={'size':'Total_Homicidios'})
+df_ciudades_violentas = df_ciudades_violentas.sort_values('Total_Homicidios', ascending=False).head(5)
+fig_barras_violencia = px.bar(df_ciudades_violentas, x='MUNICIPIO', y='Total_Homicidios',
+                              title='Top 5 Ciudades más Violentas (Homicidios X9)', color='Total_Homicidios')
 
-    def muertes_por_depto(self, anio, sexo):
-        df = self.mort.copy()
-        if anio:
-            df = df[df["anio"] == anio]
-        if sexo != "Todos":
-            df = df[df["sexo"] == sexo]
+# =========================================================================
+# === 6. Top 10 ciudades con menor mortalidad (porcentaje preciso) ===
+# =========================================================================
+df_ciudades_total = df_final.groupby('MUNICIPIO', as_index=False).size().rename(columns={'size':'Total_Muertes'})
+df_ciudades_total['Porcentaje'] = df_ciudades_total['Total_Muertes'].values/df_ciudades_total['Total_Muertes'].sum()*100
+df_ciudades_menor = df_ciudades_total.sort_values('Total_Muertes').head(10)
+fig_pie_menor = px.pie(df_ciudades_menor, names='MUNICIPIO', values='Porcentaje',
+                       title='Top 10 Ciudades con Menor Mortalidad (%)')
 
-        div = self.loader.load_divipola()
-        df = (
-            df.groupby("cod_departamento", as_index=False)
-            .size()
-            .rename(columns={"size": "muertes"})
-        )
-        df = df.merge(div, on="cod_departamento", how="left")
-        return df[["cod_departamento", "nom_dpto", "muertes"]]
+# =========================================================================
+# === 7. Tabla de 10 principales causas de muerte ===
+# =========================================================================
+df_causas = df_final.groupby(['CodigoMuerte','DescripcionCodigoMuerte'], as_index=False).size().rename(columns={'size':'Total_Casos'})
+df_causas = df_causas.sort_values('Total_Casos', ascending=False).head(10)
+fig_tabla_causas = go.Figure(data=[go.Table(
+    header=dict(values=list(df_causas.columns), fill_color='paleturquoise', align='left'),
+    cells=dict(values=[df_causas.CodigoMuerte, df_causas.DescripcionCodigoMuerte, df_causas.Total_Casos],
+               fill_color='lavender', align='left'))
+])
 
-    def tendencia_mensual(self, anio, sexo):
-        df = self.mort.copy()
-        if anio:
-            df = df[df["anio"] == anio]
-        if sexo != "Todos":
-            df = df[df["sexo"] == sexo]
-        df = (
-            df.groupby("mes", as_index=False)
-            .size()
-            .rename(columns={"size": "muertes"})
-            .sort_values("mes")
-        )
-        return df
+# =========================================================================
+# === 8. Barras apiladas por sexo y departamento ===
+# =========================================================================
+df_sexo_dpto = df_final.groupby(['DEPARTAMENTO','SEXO'], as_index=False).size().rename(columns={'size':'Total'})
+fig_barras_sexo = px.bar(df_sexo_dpto, x='DEPARTAMENTO', y='Total', color='SEXO',
+                         title='Comparación de muertes por SEXO y Departamento', barmode='stack')
 
-    def causas_principales(self, anio, sexo, top=10):
-        df = self.mort.copy()
-        if anio:
-            df = df[df["anio"] == anio]
-        if sexo != "Todos":
-            df = df[df["sexo"] == sexo]
+# =========================================================================
+# === 9. Histograma por rango de edad aproximado ===
+# =========================================================================
+# Rango aproximado según tu tabla
+rango_edad = {
+    0:'0-4', 5:'1-11 meses', 7:'1-4', 9:'5-14', 11:'15-19', 12:'20-29',
+    14:'30-44', 17:'45-59', 20:'60-84', 25:'85-100+', 29:'Sin información'
+}
 
-        cod = self.loader.load_codigos()
-        df = (
-            df.groupby("cod_muerte", as_index=False)
-            .size()
-            .rename(columns={"size": "muertes"})
-        )
-        df = df.merge(cod, left_on="cod_muerte", right_on="codigo_causa", how="left")
-        return df.nlargest(top, "muertes")[["codigo_causa", "nombre_causa", "muertes"]]
+df_final['RangoEdad'] = df_final['GRUPO_EDAD1'].map(rango_edad)
+df_hist_edad = df_final.groupby('RangoEdad', as_index=False).size().rename(columns={'size':'Total_Muertes'})
+fig_hist_edad = px.bar(df_hist_edad, x='RangoEdad', y='Total_Muertes', title='Distribución de Muertes por Rango de Edad')
 
+# =========================================================================
+# === 10. DASH APP ===
+# =========================================================================
+app = Dash(__name__)
+server = app.server
 
-# ==========================================================
-# 3. Crear app
-# ==========================================================
-def create_app():
-    base_dir = Path(__file__).resolve().parent.parent
-    loader = DataLoader(base_dir)
-    svc = MortalityService(loader)
+app.layout = html.Div(style={'backgroundColor':'#f8f9fa','padding':'20px'}, children=[
+    html.H1('Análisis de Mortalidad en Colombia (2019) 🇨🇴', style={'textAlign':'center','color':'#343a40','margin-bottom':'30px'}),
 
-    app = Dash(
-        __name__,
-        external_stylesheets=[FLATLY],
-        suppress_callback_exceptions=True,
-    )
-    app.title = "Mortalidad en Colombia"
+    html.Div(style={'backgroundColor':'white','padding':'10px','borderRadius':'8px','boxShadow':'0 4px 6px rgba(0,0,0,0.1)','maxWidth':'95%','margin':'auto'}, children=[
+        dcc.Graph(id='mapa-mortalidad', figure=fig_mapa),
+        dcc.Graph(id='lineas-mes', figure=fig_lineas),
+        dcc.Graph(id='barras-violencia', figure=fig_barras_violencia),
+        dcc.Graph(id='pie-menor', figure=fig_pie_menor),
+        dcc.Graph(id='tabla-causas', figure=fig_tabla_causas),
+        dcc.Graph(id='barras-sexo', figure=fig_barras_sexo),
+        dcc.Graph(id='hist-edad', figure=fig_hist_edad)
+    ])
+])
 
-    years = svc.years()
-    app.layout = build_layout(app, years)
-
-    register_callbacks(app, svc)
-
-    server = app.server
-    return app, server
-
-
-app, server = create_app()
-
-if __name__ == "__main__":
-    app.run_server(debug=True)
+if __name__ == '__main__':
+    print(" Servidor ejecutándose en: http://127.0.0.1:8050/")
+    app.run(debug=True)
