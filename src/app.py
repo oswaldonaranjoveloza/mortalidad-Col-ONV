@@ -159,8 +159,7 @@ fig_pie_menor = px.pie(
 # Mostrar etiquetas con nombre + cantidad + porcentaje exacto
 fig_pie_menor.update_traces(
     textinfo='label+value+percent',
-    #texttemplate='%{label}<br>%{value} muertes<br>(%{percent:.2%})',
-    texttemplate=f'%{{label}}<br>%{value} / int(total_general) muertes<br>({{percent:.2%}})',
+    texttemplate='%{label}<br>%{value} muertes<br>(%{percent:.2%})',
     hovertemplate='<b>%{label}</b><br>Total: %{value} muertes<br>Porcentaje: %{percent:.2%}',
     textfont_size=13
 ) 
